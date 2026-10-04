@@ -2,11 +2,11 @@
 // The cache is only an offline fallback, never served while the network answers.
 // Bump VERSION whenever this file changes so installed copies pick it up and reload once.
 const VERSION=1;
-// Cache name is unique to this app (reversi-offline): GitHub Pages shares one origin across repos.
-const CACHE='reversi-offline';
+// Cache name is unique to this app (kakuro-offline): GitHub Pages shares one origin across repos.
+const CACHE='kakuro-offline';
 self.addEventListener('install',()=>self.skipWaiting());
 self.addEventListener('activate',e=>e.waitUntil(
-  caches.keys().then(ks=>Promise.all(ks.filter(k=>k.startsWith('reversi-')&&k!==CACHE).map(k=>caches.delete(k))))
+  caches.keys().then(ks=>Promise.all(ks.filter(k=>k.startsWith('kakuro-')&&k!==CACHE).map(k=>caches.delete(k))))
     .then(()=>self.clients.claim())
 ));
 self.addEventListener('fetch',e=>{

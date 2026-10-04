@@ -1,14 +1,14 @@
 {
-  "id": "supermania-reversi-game",
-  "name": "Supermania Reversi",
-  "short_name": "Reversi",
-  "description": "Reversi with friends, the computer, or on one phone.",
-  "start_url": "./index.html?app=reversi",
+  "id": "supermania-kakuro-game",
+  "name": "Supermania Kakuro",
+  "short_name": "Kakuro",
+  "description": "Kakuro number puzzles: endless levels and five new puzzles every day.",
+  "start_url": "./index.html?app=kakuro",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#0a1a12",
-  "theme_color": "#0a1a12",
+  "background_color": "#14213a",
+  "theme_color": "#14213a",
   "icons": [
     {
       "src": "icon-192.png",

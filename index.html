@@ -1,13 +1,13 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Supermania Reversi</title>
+<title>Supermania Kakuro</title>
 <link rel="manifest" href="manifest.json?v=1">
-<meta name="theme-color" content="#0a1a12">
+<meta name="theme-color" content="#14213a">
 <meta property="og:type" content="website">
-<meta property="og:title" content="Supermania Reversi">
-<meta property="og:description" content="Play Reversi with friends, the computer, or on one phone.">
-<meta property="og:image" content="https://supermaniagames.github.io/reversi/icon-512.png">
+<meta property="og:title" content="Supermania Kakuro">
+<meta property="og:description" content="Kakuro number puzzles: endless levels and five new puzzles every day.">
+<meta property="og:image" content="https://supermaniagames.github.io/kakuro/icon-512.png">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="icon-192.png">
 <link rel="stylesheet" href="style.css">
@@ -18,12 +18,11 @@
 
 <section class="sc" id="home">
  <div id="me"></div>
- <img id="logo" src="icon-512.png" alt="Supermania Reversi" onerror="this.hidden=true;document.getElementById('wm').hidden=false">
- <h1 id="wm" hidden><small>SUPERMANIA</small>REVERSI</h1>
+ <img id="logo" src="icon-512.png" alt="Supermania Kakuro" onerror="this.hidden=true;document.getElementById('wm').hidden=false">
+ <h1 id="wm" hidden><small>SUPERMANIA</small>KAKURO</h1>
  <div class="grid">
-  <button class="mode" data-go="friends"><span>👥</span><b>Play with friends</b></button>
-  <button class="mode" data-go="bot"><span>🤖</span><b>Computer</b></button>
-  <button class="mode wide" data-go="pass"><span>🎲</span><b>Pass N Play</b></button>
+  <button class="mode" data-go="play"><span>🔢</span><b>Levels</b></button>
+  <button class="mode" data-go="daily" disabled><span>📅</span><b>Daily 5</b></button>
  </div>
  <button class="btn" id="howbtn" data-go="how">❓ How to play</button>
  <button class="btn" id="shareapp">📤 Share app</button>
@@ -32,13 +31,13 @@
 </section>
 
 <section class="sc" id="auth" hidden>
- <h2>Sign in to play online</h2>
+ <h2>Sign in</h2>
  <input id="u" placeholder="Username" autocomplete="username" maxlength="14" autocapitalize="off">
  <input id="p" type="password" placeholder="Password (6+ characters)" autocomplete="current-password">
  <button class="btn p" id="signin">Sign in</button>
  <button class="btn" id="signup">Create account</button>
  <button class="btn" id="guest">Play as guest</button>
- <p class="hint">Guests can play online right away. Type a name above if you like.</p>
+ <p class="hint">Guests can play right away. An account keeps your character on every phone. Type a name above if you like.</p>
  <p class="err" id="aerr"></p>
  <button class="btn" data-back>Back</button>
 </section>
@@ -50,99 +49,90 @@
 </section>
 
 <section class="sc" id="setup" hidden>
- <h2>New game</h2>
- <div class="seg" data-k="mode"><button data-v="bot">Computer</button><button data-v="pass">Pass N Play</button></div>
- <p class="lbl" id="lvll">Computer level</p>
- <div class="seg" id="lvl" data-k="level"><button data-v="easy">Easy</button><button data-v="medium">Medium</button><button data-v="hard">Hard</button><button data-v="expert">Expert</button></div>
- <p class="lbl">Who goes first?</p>
- <div class="seg" data-k="first"><button data-v="1">Black</button><button data-v="2">White</button><button data-v="r">Random</button></div>
- <p class="lbl">Show legal moves</p>
- <div class="seg" data-k="hints"><button data-v="on">On</button><button data-v="off">Off</button></div>
+ <h2>Choose a level</h2>
+ <div class="stepper">
+  <button class="btn" id="lvm" aria-label="Previous level">−</button>
+  <input id="lvn" inputmode="numeric" maxlength="6" value="1" aria-label="Level number">
+  <button class="btn" id="lvp" aria-label="Next level">+</button>
+ </div>
+ <div class="card" id="lvinfo"></div>
  <button class="btn p" id="play">Play</button>
- <button class="btn" data-back>Back</button>
-</section>
-
-<section class="sc" id="friends" hidden>
- <h2>Play with friends</h2>
- <button class="btn p" id="create">Create room</button>
- <p>or enter a room code</p>
- <input id="code" inputmode="numeric" maxlength="4" placeholder="4-digit code">
- <button class="btn" id="join">Join room</button>
- <p class="err" id="ferr"></p>
  <button class="btn" data-back>Back</button>
 </section>
 
 <section class="sc" id="how" hidden>
  <h2>How to play</h2>
- <div class="seg" data-k="how"><button data-v="basics">Basics</button><button data-v="scoring">Scoring</button><button data-v="modes">Modes</button></div>
+ <div class="seg" data-k="how"><button data-v="basics">Basics</button><button data-v="logic">Logic</button><button data-v="controls">Controls</button></div>
  <div class="hp" data-t="basics">
   <ul>
-   <li>Two players, Black and White, take turns placing one disc on the 8 by 8 board. Black goes first.</li>
-   <li>A move must trap at least one enemy disc. Line up your new disc and another of your own discs with enemy discs between them, in a straight line.</li>
-   <li>Every trapped disc flips to your colour. Lines can run across, up and down, or on a diagonal, and one move can flip several lines at once.</li>
-   <li>Small dots on the board show where you can play. If you have no legal move, your turn is skipped automatically.</li>
+   <li>Fill every white square with a digit from 1 to 9.</li>
+   <li>A small number in a black square is a total. The number at the top right is the total for the run of white squares to its right. The number at the bottom left is the total for the run below it.</li>
+   <li>Each run must add up to its total.</li>
+   <li>A digit can not repeat inside one run. The same digit can appear again in a different run.</li>
   </ul>
   <div class="minis">
-   <div class="mn"><div class="mini" data-s="....|BFFN|....|...."></div><span>Across</span></div>
-   <div class="mn"><div class="mini" data-s=".N..|.F..|.F..|.B.."></div><span>Up and down</span></div>
-   <div class="mn"><div class="mini" data-s="N...|.F..|..F.|...B"></div><span>Diagonal</span></div>
-   <div class="mn"><div class="mini" data-s=".h..|hWB.|.BWh|..h."></div><span>Dots show your moves</span></div>
+   <div class="mn"><div class="mini" data-s="#,D3,D7|A4,.,.|A6,.,."></div><span>Totals: 4 and 6 across, 3 and 7 down</span></div>
+   <div class="mn"><div class="mini" data-s="#,D3,D7|A4,1,3|A6,2,4"></div><span>Solved. 1+3=4, 2+4=6, 1+2=3, 3+4=7</span></div>
+   <div class="mn"><div class="mini" data-s="A6,1,2,3"></div><span>Allowed: 1+2+3=6</span></div>
+   <div class="mn"><div class="mini" data-s="A6,3!,3!,."></div><span>Not allowed: two 3s in one run</span></div>
   </div>
  </div>
- <div class="hp" data-t="scoring" hidden>
+ <div class="hp" data-t="logic" hidden>
   <ul>
-   <li>The game ends when neither player can move, or when all 64 squares are full.</li>
-   <li>Count the discs. The player with more discs of their colour wins. Equal counts are a draw.</li>
-   <li>The live count of each colour is shown on the player cards, and it changes as discs flip.</li>
-   <li>Corners can never be flipped, so they are the strongest squares. Edges are strong too.</li>
-   <li>Squares next to an empty corner are risky, because they can give the corner away.</li>
+   <li>Some totals can be made only one way. Two squares: 3 is 1+2, 4 is 1+3, 16 is 7+9 and 17 is 8+9. Start with these.</li>
+   <li>Three squares: 6 is 1+2+3, 7 is 1+2+4, 23 is 6+8+9 and 24 is 7+8+9.</li>
+   <li>A square sits in two runs, so it must fit both. If one run can only use 1 and 3, and the other only 1 and 2, the square is 1.</li>
+   <li>Use pencil notes for the digits that are still possible, and rub them out as you learn more.</li>
+   <li>The sums under the board show what the selected runs add up to so far.</li>
   </ul>
   <div class="minis">
-   <div class="mn"><div class="mini" data-s="B...|.W..|..W.|...N"></div><span>A corner is safe</span></div>
-   <div class="mn"><div class="mini" data-s="BBBB|BWWB|BWWB|BBBB"></div><span>Black wins by count</span></div>
+   <div class="mn"><div class="mini" data-s="A3,.,."></div><span>3 is only 1 and 2</span></div>
+   <div class="mn"><div class="mini" data-s="A17,.,."></div><span>17 is only 8 and 9</span></div>
+   <div class="mn"><div class="mini" data-s="A4,n13,n13"></div><span>Notes: 1 or 3</span></div>
+   <div class="mn"><div class="mini" data-s="#,D3,D7|A4,.*,.|A6,.,."></div><span>4 across and 3 down: this square must be 1</span></div>
   </div>
  </div>
- <div class="hp" data-t="modes" hidden><ul>
-  <li>Play with friends: one player creates a room and shares the 4-digit code or the WhatsApp link. You play a best of 3 series, and the first to win 2 games takes it. Draws are replayed.</li>
-  <li>Timer: online and against the computer you have 15 seconds per turn. If time runs out, a move is played for you. Miss 3 turns in a row and you lose the series online, or the game closes against the computer.</li>
-  <li>Computer: pick Easy, Medium, Hard or Expert. You choose who goes first.</li>
-  <li>Pass N Play: two people share one phone and take turns. There is no timer.</li>
-  <li>Legal move dots can be turned off when you set up a game.</li>
-  <li>Tip: take corners when you can, and avoid giving them away.</li>
-  <li>Tip: having fewer discs in the middle game is often better, because it leaves your opponent fewer moves.</li>
- </ul></div>
+ <div class="hp" data-t="controls" hidden>
+  <ul>
+   <li>Tap a white square, then tap a number. The runs that go through the square light up.</li>
+   <li>Notes: switch Notes on to write small candidate digits. Tap a digit again to remove it. When you place a digit, it is cleared from the notes of its runs.</li>
+   <li>Erase clears a square. Undo and Redo walk back and forward through your moves.</li>
+   <li>Mistakes: switch it on to see wrong digits in red. A digit repeated inside a run is always shown in red.</li>
+   <li>Hint: fills in one square. You only get a few per puzzle, and using one counts against your score.</li>
+   <li>On a keyboard: 1 to 9, Backspace, the arrow keys, N for notes and Ctrl+Z to undo.</li>
+  </ul>
+  <div class="minis">
+   <div class="mn"><div class="mini" data-s="A6,n12,n12,n3"></div><span>Pencil notes</span></div>
+   <div class="mn"><div class="mini" data-s="A6,3!,3!,."></div><span>A repeat shows in red</span></div>
+  </div>
+ </div>
  <button class="btn p" data-back>Back</button>
 </section>
 
-<section class="sc" id="lobby" hidden>
- <h2>Room code</h2>
- <div id="rcode"></div>
- <ul id="plist"></ul>
- <p id="lmsg"></p>
- <button class="btn p" id="wa">Share on WhatsApp</button>
- <button class="btn" id="copy">Copy invite link</button>
- <p class="hint" id="link"></p>
- <button class="btn p" id="start" hidden>Start game</button>
- <button class="btn" data-back>Leave</button>
-</section>
-
 <section class="sc" id="game" hidden>
- <div id="bar"><button class="btn" data-back>Menu</button><div id="status"></div><button class="btn" id="mute" aria-label="Sound on or off">Sound</button></div>
- <div class="crow" id="cards"></div>
- <div class="hint" id="series" hidden></div>
+ <div id="bar"><button class="btn" data-back>Menu</button><div id="status"><b id="gtitle"></b><span id="time">0:00</span></div><button class="btn" id="mute" aria-label="Sound on or off">Sound</button></div>
  <div class="hint" id="note"></div>
- <div id="board"></div>
- <div id="tools"><button class="btn" id="hintbtn">Hints: On</button></div>
+ <div id="kwrap"><div id="kgrid"></div></div>
+ <div id="runs"></div>
+ <div id="pad">
+  <button class="nb" data-d="1">1</button><button class="nb" data-d="2">2</button><button class="nb" data-d="3">3</button><button class="nb" data-d="4">4</button><button class="nb" data-d="5">5</button><button class="nb" data-d="6">6</button><button class="nb" data-d="7">7</button><button class="nb" data-d="8">8</button><button class="nb" data-d="9">9</button>
+ </div>
+ <div id="tools">
+  <button class="tb" id="undo"><i>↶</i>Undo</button>
+  <button class="tb" id="redo"><i>↷</i>Redo</button>
+  <button class="tb" id="erase"><i>⌫</i>Erase</button>
+  <button class="tb" id="notes" aria-pressed="false"><i>✎</i>Notes</button>
+  <button class="tb" id="hintbtn"><i>💡</i><span>Hint</span></button>
+  <button class="tb" id="mist" aria-pressed="false"><i>✔</i>Mistakes</button>
+ </div>
 </section>
 
 </main>
 
-<button id="chatbtn" hidden aria-label="Chat">💬</button>
-
 <div id="result" hidden>
  <div id="confetti"></div>
  <div class="rbox">
-  <div class="rtitle" id="rtitle">Congratulations!</div>
+  <div class="rtitle" id="rtitle">Solved!</div>
   <div id="rlist"></div>
   <div class="rbtns"><button class="btn" id="rmenu">Menu</button><button class="btn" id="rshare">Share</button><button class="btn p" id="rreplay">Replay</button></div>
  </div>
@@ -153,12 +143,6 @@
   <p id="dp"></p>
   <div class="rbtns"><button class="btn" id="dno">Stay</button><button class="btn p" id="dyes">Leave</button></div>
  </div>
-</div>
-
-<div id="chat" hidden>
- <div id="chead"><b>Chat</b><button id="cclose" aria-label="Close chat">✕</button></div>
- <div id="msgs"></div>
- <div id="cin"><input id="ct" maxlength="200" placeholder="Message"><button class="btn p" id="send">Send</button></div>
 </div>
 
 <script type="module" src="main.js"></script>
