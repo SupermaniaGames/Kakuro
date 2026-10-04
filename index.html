@@ -20,8 +20,9 @@
  <div id="me"></div>
  <img id="logo" src="icon-512.png" alt="Supermania Kakuro" onerror="this.hidden=true;document.getElementById('wm').hidden=false">
  <h1 id="wm" hidden><small>SUPERMANIA</small>KAKURO</h1>
+ <button class="btn p" id="cont" hidden></button>
  <div class="grid">
-  <button class="mode" data-go="play"><span>🔢</span><b>Levels</b></button>
+  <button class="mode" data-go="play"><span>🔢</span><b>Levels<small id="lvsub"></small></b></button>
   <button class="mode" data-go="daily" disabled><span>📅</span><b>Daily 5</b></button>
  </div>
  <button class="btn" id="howbtn" data-go="how">❓ How to play</button>
@@ -57,6 +58,8 @@
  </div>
  <div class="card" id="lvinfo"></div>
  <button class="btn p" id="play">Play</button>
+ <button class="btn" id="restart" hidden>Start over</button>
+ <button class="btn" id="lvcur">Go to my level</button>
  <button class="btn" data-back>Back</button>
 </section>
 
@@ -96,6 +99,8 @@
   <ul>
    <li>Tap a white square, then tap a number. The runs that go through the square light up.</li>
    <li>Notes: switch Notes on to write small candidate digits. Tap a digit again to remove it. When you place a digit, it is cleared from the notes of its runs.</li>
+   <li>Levels: clear a level to unlock the next one. There is no last level. You can replay any level you have cleared.</li>
+   <li>Your puzzle saves itself. Leave any time and tap Continue on the home screen.</li>
    <li>Erase clears a square. Undo and Redo walk back and forward through your moves.</li>
    <li>Mistakes: switch it on to see wrong digits in red. A digit repeated inside a run is always shown in red.</li>
    <li>Hint: fills in one square. You only get a few per puzzle, and using one counts against your score.</li>
@@ -134,7 +139,8 @@
  <div class="rbox">
   <div class="rtitle" id="rtitle">Solved!</div>
   <div id="rlist"></div>
-  <div class="rbtns"><button class="btn" id="rmenu">Menu</button><button class="btn" id="rshare">Share</button><button class="btn p" id="rreplay">Replay</button></div>
+  <div class="rbtns"><button class="btn p" id="rnext">Next level</button></div>
+  <div class="rbtns"><button class="btn" id="rmenu">Menu</button><button class="btn" id="rshare">Share</button><button class="btn" id="rreplay">Replay</button></div>
  </div>
 </div>
 <div id="dlg" hidden>

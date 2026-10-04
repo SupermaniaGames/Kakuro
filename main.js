@@ -1,4 +1,5 @@
 import * as K from './kakuro.js';
+import * as PG from './progress.js';
 let mp;
 try{mp=await import('./multiplayer.js')}catch(e){
   console.error('Firebase setup problem:',e);
@@ -11,6 +12,9 @@ const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const S={how:'basics',mist:false,lvl:1};
 try{if(localStorage.getItem('kk_mist')=='1')S.mist=true}catch{}
 const saveMist=()=>{try{localStorage.setItem('kk_mist',S.mist?'1':'0')}catch{}};
+// storage (kk_prog = progress, kk_save = the game in progress). If the browser blocks it, the game still plays, it just can not remember.
+let st;try{st=localStorage}catch{st={getItem:()=>null,setItem(){throw 0},removeItem(){}}}
+const P=PG.loadProg(st);
 let g=null,ctx={},upd=false;
 const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -117,12 +121,12 @@ function leave(){
   $('#note').textContent='';
   $('#rreplay').disabled=false;
 }
-function home(){leave();show('home');renderMe();applyUpdate()}
+function home(){persist();leave();show('home');renderMe();renderHome();applyUpdate()}
 
 $$('[data-go]').forEach(b=>b.onclick=()=>{
   const v=b.dataset.go;
   if(v=='how'){S.how='basics';markSeg();return show('how')}
-  if(v=='play'){setLv(S.lvl);return show('setup')}
+  if(v=='play'){setLv(PG.unlockedLevel(P));return show('setup')}
 });
 
 async function doAuth(create){
@@ -145,40 +149,67 @@ $('#signin').onclick=()=>doAuth(false);
 $('#signup').onclick=()=>doAuth(true);
 function afterAuth(){renderMe();show('home')}
 
-/* ---------- level picker (step 1: any level 1 to 99999; progress and unlocking arrive in step 2) ---------- */
+/* ---------- home and level picker ---------- */
 const DIFF=['Gentle','Easy','Medium','Hard','Expert'],LOGIC=['give-aways only','give-aways and crossings','careful deduction','one step of trial and error'];
-const clampLv=n=>Math.max(1,Math.min(99999,Math.floor(n)||1));
+const fmt=ms=>{const s=Math.floor(ms/1000);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')};
+const saved=()=>PG.readSave(st);
+const clearSave=()=>PG.clearSave(st);
+function renderHome(){
+  const sv=saved(),c=$('#cont');
+  $('#lvsub').textContent='Level '+PG.unlockedLevel(P)+(P.cleared?' · '+P.cleared+' cleared':'');
+  c.hidden=!sv;if(sv)c.textContent='▶ Continue '+sv.meta.title+' ('+fmt(sv.ms)+')';
+}
+$('#cont').onclick=()=>{const sv=saved();if(sv)resume(sv);else renderHome()};
+const clampLv=n=>Math.max(1,Math.min(PG.unlockedLevel(P),Math.floor(n)||1));   // only levels up to your next new one
 function lvInfo(){
-  const P=K.levelProfile(S.lvl),k=Math.min(4,Math.floor(P.d*5));
+  const P0=K.levelProfile(S.lvl),k=Math.min(4,Math.floor(P0.d*5)),sv=saved(),mine=sv&&sv.meta.level==S.lvl,b=P.best[S.lvl];
+  const status=mine?'In progress · '+fmt(sv.ms):b?'Best time '+fmt(b.ms)+' · '+b.a+(b.a==1?' attempt':' attempts')+' · '+b.h+(b.h==1?' hint':' hints'):S.lvl==PG.unlockedLevel(P)?'New level':'';
   $('#lvinfo').innerHTML='<b>Level '+S.lvl+'</b><span class="dots">'+[0,1,2,3,4].map(i=>'<i class="'+(i<=k?'on':'')+'"></i>').join('')+'</span><br>'+
-    DIFF[k]+' · grid '+P.cols+' × '+P.rows+'<br>Runs up to '+P.maxRun+' squares long<br>Logic: '+LOGIC[Math.min(3,P.tHi-1)];
+    DIFF[k]+' · grid '+P0.cols+' × '+P0.rows+'<br>Runs up to '+P0.maxRun+' squares long<br>Logic: '+LOGIC[Math.min(3,P0.tHi-1)]+(status?'<br>'+status:'');
+  $('#play').textContent=mine?'Resume':'Play';
+  $('#restart').hidden=!mine;
+  $('#lvcur').hidden=S.lvl==PG.unlockedLevel(P);
+  $('#lvm').disabled=S.lvl<=1;$('#lvp').disabled=S.lvl>=PG.unlockedLevel(P);
 }
 function setLv(n){S.lvl=clampLv(n);$('#lvn').value=S.lvl;lvInfo()}
 $('#lvm').onclick=()=>setLv(S.lvl-1);
 $('#lvp').onclick=()=>setLv(S.lvl+1);
+$('#lvcur').onclick=()=>setLv(PG.unlockedLevel(P));
 $('#lvn').oninput=()=>{S.lvl=clampLv(+$('#lvn').value.replace(/\D/g,''));lvInfo()};
 $('#lvn').onchange=()=>setLv(S.lvl);
-$('#play').onclick=()=>startLevel(S.lvl);
-function startLevel(N){
-  const b=$('#play');b.disabled=true;b.textContent='Making puzzle...';
-  setTimeout(()=>{   // let the button repaint before the generator takes the thread for a moment
+$('#play').onclick=()=>{
+  const sv=saved();
+  if(sv&&sv.meta.level==S.lvl)return resume(sv);
+  if(sv)return ask('Start a new level?','You have '+sv.meta.title+' in progress. Starting Level '+S.lvl+' will discard it.','Discard',()=>{clearSave();makeLevel(S.lvl,$('#play'))});
+  makeLevel(S.lvl,$('#play'));
+};
+$('#restart').onclick=()=>ask('Start over?','Your progress on Level '+S.lvl+' will be erased and you get a fresh board. It counts as another attempt.','Start over',()=>{clearSave();makeLevel(S.lvl,$('#play'))});
+// the generator can take up to a second on a big level on a slow phone, so the button says so first
+function makeLevel(N,btn){
+  const label=btn.textContent;btn.disabled=true;btn.textContent='Making puzzle...';
+  setTimeout(()=>{   // let the button repaint before the generator takes the thread
     let pz=null;try{pz=K.levelPuzzle(N)}catch(e){console.error(e)}
-    b.disabled=false;b.textContent='Play';
+    btn.disabled=false;btn.textContent=label;
     if(!pz)return ask('Sorry','Could not make this puzzle. Try another level.','OK',()=>{},true);
     newGame(pz,{type:'level',level:N,title:'Level '+N});
   },30);
 }
+function resume(sv){newGame(sv.pz,sv.meta,sv)}
 
 /* ---------- the game ---------- */
-const fmt=ms=>{const s=Math.floor(ms/1000);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')};
-function newGame(pz,meta){
+// restore = a checked save from readSave(): the board, notes, hints, time and undo history come back exactly as left
+function newGame(pz,meta,restore){
   leave();
   const ur=K.uiRuns(pz),N=pz.rows*pz.cols,W=pz.t.reduce((a,b)=>a+b,0);
   g={pz,meta,R:pz.rows,C:pz.cols,N,runs:ur.runs,ra:ur.ra,rd:ur.rd,sol:Array.from(pz.sol,Number),
      v:new Int8Array(N),n:new Uint16Array(N),lock:new Uint8Array(N),sel:-1,pencil:false,hist:[],redo:[],
-     hints:0,hintMax:Math.max(2,Math.min(5,2+Math.floor(W/12))),checks:0,mist:S.mist,st:'play',ms:0,t0:0,moves:0,els:[]};
+     hints:0,hintMax:Math.max(2,Math.min(5,2+Math.floor(W/12))),checks:0,mist:S.mist,st:'play',ms:0,t0:0,moves:0,counted:false,els:[]};
+  if(restore){
+    for(let i=0;i<N;i++){g.v[i]=+restore.cells[i];g.n[i]=restore.n[i];g.lock[i]=+restore.lock[i]}
+    Object.assign(g,{hints:restore.hints,hintMax:restore.hintMax,checks:restore.checks,ms:restore.ms,moves:restore.moves,counted:restore.counted,pencil:restore.pencil,hist:restore.hist});
+  }
   $('#gtitle').textContent=meta.title;
-  show('game');buildBoard();syncAll();startClock();sfx.start();
+  show('game');buildBoard();syncAll();startClock();if(!restore)sfx.start();
 }
 function buildBoard(){
   const el=$('#kgrid');el.innerHTML='';el.style.setProperty('--C',g.C);
@@ -207,6 +238,18 @@ function fit(){
 }
 addEventListener('resize',fit);
 
+// write the game in progress to storage. Cheap (about 1-2 KB), so it runs after every change.
+function persist(){
+  if(!g||g.meta.type!='level')return;
+  if(g.st=='done'){clearSave();return}
+  if(g.moves>0||g.counted)PG.writeSave(st,g,elapsed());
+}
+// an attempt is counted when the first digit (or hint) goes on a fresh board
+function countAttempt(){
+  if(g.counted||g.meta.type!='level')return;
+  g.counted=true;PG.startAttempt(P,'L'+g.meta.level);PG.saveProg(st,P);
+}
+addEventListener('pagehide',persist);
 function pick(i){if(!g||g.st!='play')return;g.sel=i;syncAll()}
 // re-draw everything that depends on the board state: digits, notes, highlights, sums, pad and tool buttons
 function syncAll(){
@@ -254,7 +297,7 @@ function put(ch,dir){for(const c of dir?ch:ch.slice().reverse()){if(g.lock[c.i])
 function commit(ch){
   if(!ch.length)return;
   put(ch,true);g.hist.push(ch);if(g.hist.length>400)g.hist.shift();g.redo.length=0;g.moves++;
-  syncAll();checkDone();
+  syncAll();checkDone();persist();
 }
 function press(d){
   if(!g||g.st!='play')return;
@@ -267,7 +310,7 @@ function press(d){
   if(g.v[i]==d)return;
   const ch=[{i,v0:g.v[i],n0:g.n[i],v1:d,n1:0}],b=1<<(d-1);
   for(const r of [g.ra[i],g.rd[i]])for(const j of g.runs[r].cells)if(j!==i&&!g.v[j]&&(g.n[j]&b))ch.push({i:j,v0:0,n0:g.n[j],v1:0,n1:g.n[j]&~b});
-  commit(ch);sfx.tap();
+  countAttempt();commit(ch);sfx.tap();
 }
 function erase(){
   if(!g||g.st!='play'||g.sel<0)return;
@@ -275,8 +318,8 @@ function erase(){
   if(g.v[i]){commit([{i,v0:g.v[i],n0:g.n[i],v1:0,n1:0}]);sfx.erase()}
   else if(g.n[i]){commit([{i,v0:0,n0:g.n[i],v1:0,n1:0}]);sfx.erase()}
 }
-function undo(){if(!g||g.st!='play'||!g.hist.length)return;const ch=g.hist.pop();put(ch,false);g.redo.push(ch);sfx.erase();syncAll()}
-function redo(){if(!g||g.st!='play'||!g.redo.length)return;const ch=g.redo.pop();put(ch,true);g.hist.push(ch);sfx.tap();syncAll()}
+function undo(){if(!g||g.st!='play'||!g.hist.length)return;const ch=g.hist.pop();put(ch,false);g.redo.push(ch);sfx.erase();syncAll();persist()}
+function redo(){if(!g||g.st!='play'||!g.redo.length)return;const ch=g.redo.pop();put(ch,true);g.hist.push(ch);sfx.tap();syncAll();persist()}
 function hint(){
   if(!g||g.st!='play'||g.hints>=g.hintMax)return;
   let i=g.sel;
@@ -285,13 +328,13 @@ function hint(){
   const d=g.sol[i],b=1<<(d-1);
   g.v[i]=d;g.n[i]=0;g.lock[i]=1;g.hints++;g.sel=i;
   for(const r of [g.ra[i],g.rd[i]])for(const j of g.runs[r].cells)if(j!==i&&!g.v[j])g.n[j]&=~b;
-  sfx.hint();syncAll();checkDone();
+  countAttempt();sfx.hint();syncAll();checkDone();persist();
 }
 $$('.nb').forEach(b=>b.onclick=()=>press(+b.dataset.d));
 $('#undo').onclick=undo;$('#redo').onclick=redo;$('#erase').onclick=erase;$('#hintbtn').onclick=hint;
-const toggleNotes=()=>{if(!g||g.st!='play')return;g.pencil=!g.pencil;syncAll()};
+const toggleNotes=()=>{if(!g||g.st!='play')return;g.pencil=!g.pencil;syncAll();persist()};
 $('#notes').onclick=toggleNotes;
-$('#mist').onclick=()=>{if(!g||g.st!='play')return;g.mist=!g.mist;S.mist=g.mist;saveMist();if(g.mist)g.checks++;syncAll()};
+$('#mist').onclick=()=>{if(!g||g.st!='play')return;g.mist=!g.mist;S.mist=g.mist;saveMist();if(g.mist)g.checks++;syncAll();persist()};
 addEventListener('keydown',e=>{
   if(!g||cur()!='game'||!$('#dlg').hidden||!$('#result').hidden||e.target.tagName=='INPUT')return;
   const k=e.key;
@@ -316,7 +359,7 @@ function startClock(){if(!g||g.st!='play')return;if(!g.t0)g.t0=performance.now()
 function pauseClock(){if(g&&g.t0){g.ms+=performance.now()-g.t0;g.t0=0}clearInterval(ctx.tt)}
 document.addEventListener('visibilitychange',()=>{
   if(!g||g.st!='play')return;
-  if(document.visibilityState=='hidden')pauseClock();else if(cur()=='game'&&$('#dlg').hidden)startClock();
+  if(document.visibilityState=='hidden'){pauseClock();persist()}else if(cur()=='game'&&$('#dlg').hidden)startClock();
 });
 
 /* ---- finishing ---- */
@@ -325,21 +368,23 @@ function checkDone(){
   for(let i=0;i<g.N;i++)if(g.pz.t[i]&&!g.v[i])return;
   if(!K.isSolved(g.pz,g.runs,g.v))return;
   g.st='done';pauseClock();tick();g.sel=-1;syncAll();
+  if(g.meta.type=='level'){g.rec=PG.recordClear(P,{level:g.meta.level,ms:g.ms,hints:g.hints});PG.saveProg(st,P)}   // saved now, so closing the app during the animation loses nothing
   if(!reduced){let n=0;g.els.forEach(k=>{if(k.classList.contains('w')){k.style.setProperty('--k',n++);k.classList.add('done')}})}
   sfx.win();ctx.t1=setTimeout(showResult,reduced?200:1100);
 }
-// a finished attempt: step 3 saves {type, level, time, attempts, hints, finished} from here
+// step 3 sends {type, level, time, attempts, hints, finished} to Firebase from here (g.rec has them)
 function showResult(){
-  if(!g||g.st!='done')return;
-  const list=$('#rlist');list.innerHTML='';
-  $('#rtitle').textContent=g.meta.title+' solved!';
-  [['⏱','Time',fmt(g.ms)],['💡','Hints used',g.hints+' of '+g.hintMax],['🧩','Grid',g.C+' × '+g.R]].forEach(([ic,nm,val],i)=>{
+  if(!g||g.st!='done'||!g.rec)return;
+  const r=g.rec,list=$('#rlist');list.innerHTML='';
+  $('#rtitle').textContent=g.meta.title+(r.first?' cleared!':' solved!');
+  [['⏱','Time',fmt(g.ms)],['🏆','Best time',fmt(r.best.ms)+(r.newBest&&!r.first?'  new!':'')],['💡','Hints used',g.hints+' of '+g.hintMax],['🔁','Attempts',String(r.attempts)]].forEach(([ic,nm,val],i)=>{
     const row=document.createElement('div');row.className='rrow'+(i==0?' r0':'');
     const av=document.createElement('span');av.className='rav';av.textContent=ic;
     const n=document.createElement('span');n.className='nm';n.textContent=nm;
     const t=document.createElement('span');t.textContent=val;
     row.append(av,n,t);list.append(row);
   });
+  if(r.first)list.append(Object.assign(document.createElement('p'),{className:'hint',textContent:'Level '+PG.unlockedLevel(P)+' is unlocked.'}));
   confetti(true);$('#result').hidden=false;
 }
 function confetti(on){
@@ -350,6 +395,7 @@ function confetti(on){
   }
 }
 $('#rmenu').onclick=home;
+$('#rnext').onclick=()=>{if(g)makeLevel(g.meta.level+1,$('#rnext'))};
 $('#rreplay').onclick=()=>{if(!g)return;const pz=g.pz,meta=g.meta;$('#result').hidden=true;newGame(pz,meta)};
 $('#rshare').onclick=()=>shareApp('I solved '+(g?g.meta.title+' in '+fmt(g.ms)+' ':'a puzzle ')+'on Supermania Kakuro! Come play:');
 
@@ -372,9 +418,7 @@ function ask(title,text,yes,cb,info){
 const closeDlg=()=>{$('#dlg').hidden=true;if(g&&g.st=='play'&&cur()=='game')startClock()};
 const cur=()=>($$('.sc').find(s=>!s.hidden)||{}).id;
 function leaveFlow(){
-  const sc=cur();
-  if(sc=='game'&&g&&g.st=='play'&&g.moves>0)ask('Leave puzzle?','Your progress on this puzzle will be lost.','Leave',home);
-  else home();
+    home();   // a puzzle in progress is saved, so leaving needs no warning: it waits under Continue
 }
 $$('[data-back]').forEach(b=>b.onclick=leaveFlow);
 let armed=false,exiting=false;
@@ -401,7 +445,7 @@ if('serviceWorker' in navigator){
 // page started with. A newer version reloads the app as soon as it is on a menu screen (never mid-game).
 async function fileSig(){
   let h=0;
-  for(const f of ['index.html','main.js','multiplayer.js','kakuro.js','style.css','manifest.json','firebase-config.js']){
+  for(const f of ['index.html','main.js','multiplayer.js','kakuro.js','progress.js','style.css','manifest.json','firebase-config.js']){
     const r=await fetch(f,{cache:'no-store'});if(!r.ok)throw 0;
     const t=await r.text();for(let i=0;i<t.length;i++)h=(h*31+t.charCodeAt(i))|0;
   }
@@ -446,3 +490,4 @@ async function installHelp(){
    'This app sees:\nid: '+id+'\nscope: '+scope,'OK',()=>{},true);
 }
 showInstall();
+renderHome();
