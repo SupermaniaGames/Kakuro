@@ -23,7 +23,7 @@
  <button class="btn p" id="cont" hidden></button>
  <div class="grid">
   <button class="mode" data-go="play"><span>🔢</span><b>Levels<small id="lvsub"></small></b></button>
-  <button class="mode" data-go="daily" disabled><span>📅</span><b>Daily 5</b></button>
+  <button class="mode" data-go="daily"><span>📅</span><b>Daily 5<small id="dsub"></small></b></button>
  </div>
  <button class="btn" id="howbtn" data-go="how">❓ How to play</button>
  <button class="btn" id="shareapp">📤 Share app</button>
@@ -35,10 +35,12 @@
  <h2>Sign in</h2>
  <input id="u" placeholder="Username" autocomplete="username" maxlength="14" autocapitalize="off">
  <input id="p" type="password" placeholder="Password (6+ characters)" autocomplete="current-password">
+ <button class="btn gbtn" id="google"><b>G</b> Continue with Google</button>
+ <p class="or">or use a username</p>
  <button class="btn p" id="signin">Sign in</button>
  <button class="btn" id="signup">Create account</button>
  <button class="btn" id="guest">Play as guest</button>
- <p class="hint">Guests can play right away. An account keeps your character on every phone. Type a name above if you like.</p>
+ <p class="hint">Guests can play right away. An account keeps your levels, times, streak and character on every phone. A guest who signs up keeps everything they have done. Type a name above if you like.</p>
  <p class="err" id="aerr"></p>
  <button class="btn" data-back>Back</button>
 </section>
@@ -63,9 +65,27 @@
  <button class="btn" data-back>Back</button>
 </section>
 
+<section class="sc" id="daily" hidden>
+ <h2>Daily 5</h2>
+ <div class="card" id="dinfo"></div>
+ <div id="dlist"></div>
+ <button class="btn p" id="dboard">🏆 Leaderboard</button>
+ <button class="btn" data-back>Back</button>
+</section>
+
+<section class="sc" id="board" hidden>
+ <h2>Today's leaderboard</h2>
+ <div class="hint" id="bday"></div>
+ <div id="blist"></div>
+ <p class="hint" id="bmsg"></p>
+ <button class="btn" id="bref">Refresh</button>
+ <button class="btn" id="bsign">Sign in</button>
+ <button class="btn p" data-back>Back</button>
+</section>
+
 <section class="sc" id="how" hidden>
  <h2>How to play</h2>
- <div class="seg" data-k="how"><button data-v="basics">Basics</button><button data-v="logic">Logic</button><button data-v="controls">Controls</button></div>
+ <div class="seg" data-k="how"><button data-v="basics">Basics</button><button data-v="logic">Logic</button><button data-v="controls">Controls</button><button data-v="daily">Daily</button></div>
  <div class="hp" data-t="basics">
   <ul>
    <li>Fill every white square with a digit from 1 to 9.</li>
@@ -110,6 +130,15 @@
    <div class="mn"><div class="mini" data-s="A6,n12,n12,n3"></div><span>Pencil notes</span></div>
    <div class="mn"><div class="mini" data-s="A6,3!,3!,."></div><span>A repeat shows in red</span></div>
   </div>
+ </div>
+ <div class="hp" data-t="daily" hidden>
+  <ul>
+   <li>Daily 5 is five fresh puzzles every day, from easy to expert. Everyone gets the same five. They change at midnight India time (Asia/Kolkata).</li>
+   <li>Only your first solve of each puzzle counts. You can replay a solved one for practice, but it is not recorded.</li>
+   <li>Finish all five in a day to add to your streak. Miss a whole day and the streak starts again.</li>
+   <li>Leaderboard: your score is your total time for the five, plus 30 seconds for every hint you used. Lowest wins.</li>
+   <li>Your times are saved to your account, so they follow you to a new phone. If you are offline, they are sent when you are back online.</li>
+  </ul>
  </div>
  <button class="btn p" data-back>Back</button>
 </section>

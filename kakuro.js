@@ -353,3 +353,16 @@ export function isSolved(pz,runs,vals){
   for(const r of runs){let s=0,seen=0;for(const i of r.cells){const d=vals[i];if(!d)return false;const b=1<<(d-1);if(seen&b)return false;seen|=b;s+=d}if(s!==r.sum)return false}
   return true;
 }
+
+/* ---------- Daily 5 ---------- */
+// Five puzzles per day, same for everyone. `day` is the India (Asia/Kolkata) day number: whole days since 1970-01-01 in IST
+// (see dayNum in progress.js). India has no daylight saving, so the day always starts at 18:30 UTC.
+export const DAILY_D=[.08,.24,.44,.64,.84];
+export const DAILY_NAMES=['Easy','Medium','Tricky','Hard','Expert'];
+export const dailyProfile=k=>profileFor(DAILY_D[k]);
+// Same retry idea as levels: a fixed list of derived seeds, no clocks.
+export function dailyPuzzle(day,k){
+  const P=dailyProfile(k);
+  for(let a=0;a<6;a++){const pz=generate(hash32(day*16+k+a*1000003+0x5eed),P);if(pz)return pz}
+  return null;
+}

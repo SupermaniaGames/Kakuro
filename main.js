@@ -5,7 +5,7 @@ try{mp=await import('./multiplayer.js')}catch(e){
   console.error('Firebase setup problem:',e);
   const why=String(e&&e.message||'').includes('Firebase config')?e.message:'Sign-in is not set up. Check firebase-config.js';
   const off=()=>{throw new Error(why)};
-  mp={me:()=>null,onUser(cb){setTimeout(()=>cb(null))},signIn:off,signUp:off,guest:off,logout:async()=>{},saveProfile:async()=>{},loadProfile:async()=>null};
+  mp={me:()=>null,onUser(cb){setTimeout(()=>cb(null))},signIn:off,signUp:off,guest:off,logout:async()=>{},saveProfile:async()=>{},loadProfile:async()=>null,googleSignIn:off,loadSummary:async()=>null,syncClear:off,submitBoard:off,fetchBoard:off,myRank:off};
 }
 
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
@@ -20,7 +20,7 @@ const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 const show=id=>$$('.sc').forEach(s=>s.hidden=s.id!=id);
 const say=(id,m)=>$('#'+id).textContent=m||'';
-const fe=e=>({'auth/email-already-in-use':'That username is taken','auth/invalid-credential':'Wrong username or password','auth/user-not-found':'Wrong username or password','auth/wrong-password':'Wrong username or password','auth/operation-not-allowed':'Turn on Email/Password sign-in in Firebase','auth/network-request-failed':'No connection','auth/admin-restricted-operation':'Turn on Anonymous sign-in in Firebase','permission-denied':'The database rules are blocking this. Check the Firestore rules.'}[e.code]||e.message||String(e));
+const fe=e=>({'auth/email-already-in-use':'That username is taken','auth/invalid-credential':'Wrong username or password','auth/user-not-found':'Wrong username or password','auth/wrong-password':'Wrong username or password','auth/operation-not-allowed':'This sign-in method is not turned on in Firebase','auth/network-request-failed':'No connection','auth/admin-restricted-operation':'Turn on Anonymous sign-in in Firebase','permission-denied':'The database rules are blocking this. Check the Firestore rules.','auth/popup-closed-by-user':'Google sign-in was cancelled','auth/popup-blocked':'Your browser blocked the Google window. Allow pop-ups for this site and try again.','auth/unauthorized-domain':'This website is not in Firebase Authorized domains (Authentication, Settings).','auth/account-exists-with-different-credential':'That email already has an account that uses a different sign-in method.','auth/cancelled-popup-request':''}[e.code]||e.message||String(e));
 
 /* ---------- sound: your files if present, otherwise synthesised ---------- */
 let ac=null,muted=false,soundsLoaded=false;const bufs={};
@@ -102,21 +102,23 @@ function renderMe(){
   ab.onclick=()=>{buildAvGrid();show('chars')};m.append(ab);
   const un=document.createElement('span');un.className='uname';un.textContent=u?u.name:'Not signed in';m.append(un);
   const b=document.createElement('button');b.className='btn';
-  if(u){b.textContent='Log out';b.onclick=async()=>{await mp.logout();renderMe()}}
-  else{b.textContent='Sign in';b.onclick=()=>show('auth')}
+  $('#guest').hidden=!!u;   // already signed in as a guest: only the account options make sense
+  if(u&&!u.anon){b.textContent='Log out';b.onclick=async()=>{await mp.logout();renderMe()}}
+  else{b.textContent=u?'Save progress':'Sign in';b.onclick=()=>show('auth')}   // a guest signing up keeps everything they have done
   m.append(b);
 }
 async function syncProfile(){
   try{const p=await mp.loadProfile();if(p&&p.kkav&&p.kkav!=myAv()){try{localStorage.setItem('kk_av',p.kkav)}catch{}renderMe()}}catch{}
 }
-mp.onUser(u=>{renderMe();if(u)syncProfile()});
+let recUid='',recBusy=false,needPush=false,flushing=false,again=false,dailyTimer=0;   // sync state, see the Sync section
+mp.onUser(u=>{renderMe();if(u){syncProfile();reconcile()}else recUid=''});
 renderMe();
 try{const lu=localStorage.getItem('kk_user');if(lu)$('#u').value=lu}catch{}
 
 function leave(){
   pauseClock();
   ['t1','nt'].forEach(k=>clearTimeout(ctx[k]));clearInterval(ctx.tt);
-  ctx={};g=null;
+  ctx={};g=null;clearInterval(dailyTimer);
   $('#result').hidden=true;$('#dlg').hidden=true;
   $('#note').textContent='';
   $('#rreplay').disabled=false;
@@ -127,6 +129,7 @@ $$('[data-go]').forEach(b=>b.onclick=()=>{
   const v=b.dataset.go;
   if(v=='how'){S.how='basics';markSeg();return show('how')}
   if(v=='play'){setLv(PG.unlockedLevel(P));return show('setup')}
+  if(v=='daily')return openDaily();
 });
 
 async function doAuth(create){
@@ -145,18 +148,26 @@ $('#guest').onclick=async()=>{
   const t=$('#u').value.trim(),name=/^[A-Za-z0-9_]{3,14}$/.test(t)?t:'Guest'+(1000+Math.floor(Math.random()*9000));
   try{await mp.guest(name);say('aerr');afterAuth()}catch(e){say('aerr',fe(e))}
 };
+$('#google').onclick=async()=>{
+  try{await mp.googleSignIn();say('aerr');await syncProfile();afterAuth()}catch(e){say('aerr',fe(e))}
+};
 $('#signin').onclick=()=>doAuth(false);
 $('#signup').onclick=()=>doAuth(true);
-function afterAuth(){renderMe();show('home')}
+function afterAuth(){renderMe();show('home');renderHome();reconcile()}   // a guest who just linked an account keeps the same uid, so onUser does not fire: reconcile here
 
 /* ---------- home and level picker ---------- */
 const DIFF=['Gentle','Easy','Medium','Hard','Expert'],LOGIC=['give-aways only','give-aways and crossings','careful deduction','one step of trial and error'];
 const fmt=ms=>{const s=Math.floor(ms/1000);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')};
 const saved=()=>PG.readSave(st);
 const clearSave=()=>PG.clearSave(st);
+const today=()=>PG.dayNum(Date.now());
 function renderHome(){
-  const sv=saved(),c=$('#cont');
+  const t=today();PG.rollDay(P,t);
+  let sv=saved();
+  if(sv&&sv.meta.type=='daily'&&sv.meta.day!==PG.dayKey(t)){clearSave();sv=null}   // yesterday's daily can no longer be finished for credit
+  const c=$('#cont'),sk=PG.streakNow(P,t);
   $('#lvsub').textContent='Level '+PG.unlockedLevel(P)+(P.cleared?' · '+P.cleared+' cleared':'');
+  $('#dsub').textContent=PG.doneCount(P)+' of 5 today'+(sk?' · 🔥'+sk:'');
   c.hidden=!sv;if(sv)c.textContent='▶ Continue '+sv.meta.title+' ('+fmt(sv.ms)+')';
 }
 $('#cont').onclick=()=>{const sv=saved();if(sv)resume(sv);else renderHome()};
@@ -195,6 +206,129 @@ function makeLevel(N,btn){
   },30);
 }
 function resume(sv){newGame(sv.pz,sv.meta,sv)}
+
+/* ---------- Daily 5 ---------- */
+let shownDay='';
+const dailyMeta=(day,k,practice)=>({type:'daily',day:PG.dayKey(day),idx:k,title:'Daily '+(k+1)+(practice?' (practice)':''),...(practice?{practice:true}:{})});
+const countdown=()=>{const s=Math.floor(PG.msToNextDay(Date.now())/60000);return Math.floor(s/60)+'h '+String(s%60).padStart(2,'0')+'m'};
+function openDaily(){
+  show('daily');renderDaily();clearInterval(dailyTimer);
+  dailyTimer=setInterval(()=>{if(cur()!='daily'){clearInterval(dailyTimer);return}renderDaily()},30000);   // also notices midnight
+}
+function renderDaily(){
+  const t=today();PG.rollDay(P,t);shownDay=PG.dayKey(t);
+  const sv=saved(),prog=sv&&sv.meta.type=='daily'&&sv.meta.day==shownDay?sv.meta.idx:-1,n=PG.doneCount(P),sk=PG.streakNow(P,t);
+  let info='<b>'+PG.dayLabel(t)+'</b><br>'+n+' of 5 done · 🔥 Streak '+sk+(sk==1?' day':' days')+(P.bestStreak>sk?' (best '+P.bestStreak+')':'');
+  if(n==5){const d=PG.dailyScore(P);info+='<br>Score '+fmt(d.score)+(d.hints?' ('+d.hints+(d.hints==1?' hint':' hints')+' = +'+fmt(d.hints*PG.HINT_PENALTY_MS)+')':'')}
+  info+='<br>'+(n==5?'All five done. New puzzles in ':'New puzzles in ')+countdown();
+  $('#dinfo').innerHTML=info;
+  const list=$('#dlist');list.innerHTML='';
+  for(let k=0;k<5;k++){
+    const P0=K.dailyProfile(k),rec=P.daily.done[k],b=document.createElement('button');
+    b.className='drow'+(rec?' done':'')+(prog==k?' prog':'');
+    b.innerHTML='<span class="no">'+(rec?'✓':k+1)+'</span><span class="tx">'+K.DAILY_NAMES[k]+'<small>'+P0.cols+' × '+P0.rows+' grid</small></span><span class="st">'+(rec?fmt(rec.ms)+(rec.h?' · '+rec.h+'💡':''):prog==k?'Resume':'Play')+'</span>';
+    b.onclick=()=>playDaily(k);list.append(b);
+  }
+}
+function playDaily(k){
+  const key=PG.dayKey(today()),rec=P.daily.done[k],sv=saved();
+  const start=()=>rec?ask('Practice this puzzle?','You already solved this one today. A replay is for practice and is not recorded.','Practice',()=>makeDaily(k,true)):makeDaily(k,false);
+  if(sv&&sv.meta.type=='daily'&&sv.meta.day==key&&sv.meta.idx==k)return resume(sv);
+  if(sv)return ask('Start a new puzzle?','You have '+sv.meta.title+' in progress. Starting this one will discard it.','Discard',()=>{clearSave();start()});
+  start();
+}
+function makeDaily(k,practice){
+  const rows=$$('#dlist .drow'),row=rows[k],stx=row&&row.querySelector('.st'),old=stx&&stx.innerHTML,day=today();
+  rows.forEach(b=>b.disabled=true);if(stx)stx.textContent='Making...';
+  setTimeout(()=>{
+    let pz=null;try{pz=K.dailyPuzzle(day,k)}catch(e){console.error(e)}
+    rows.forEach(b=>b.disabled=false);if(stx)stx.innerHTML=old;
+    if(!pz)return ask('Sorry','Could not make this puzzle. Try again.','OK',()=>{},true);
+    newGame(pz,dailyMeta(day,k,practice));
+  },30);
+}
+$('#dboard').onclick=()=>openBoard(false);
+
+/* ---------- leaderboard: today's fastest players (score = total time of the five + 30 s per hint) ---------- */
+let bc={day:'',at:0,rows:null,rank:0};
+function renderBoard(data,msg){
+  const list=$('#blist');list.innerHTML='';const u=mp.me(),mine=PG.doneCount(P)==5?PG.dailyScore(P):null;
+  const row=(rk,r,me)=>{
+    const d=document.createElement('div');d.className='brow'+(me?' me':'');
+    const a=document.createElement('span');a.className='rk';a.textContent=rk;
+    const av=document.createElement('span');av.className='rav';av.textContent=r.av||'🙂';
+    const n=document.createElement('span');n.className='nm';n.textContent=r.name||'Player';
+    const s=document.createElement('span');s.className='sc2';s.textContent=fmt(r.score);
+    const sm=document.createElement('small');sm.textContent=r.hints?r.hints+(r.hints==1?' hint':' hints'):'no hints';s.append(sm);
+    d.append(a,av,n,s);list.append(d);
+  };
+  if(data&&data.rows){
+    data.rows.forEach((r,i)=>row(i+1,r,!!u&&r.uid==u.uid));
+    if(mine&&u&&data.rank>data.rows.length)row('#'+data.rank,{name:'You',av:myAv(),score:mine.score,hints:mine.hints},true);
+  }
+  const parts=[];
+  if(msg)parts.push(msg);
+  else if(data&&data.rows&&!data.rows.length)parts.push('No scores yet today. Be the first!');
+  if(!msg&&!mine)parts.push('Finish all five puzzles to join today\'s board. You have '+PG.doneCount(P)+' of 5.');
+  else if(!msg&&mine&&!u)parts.push('Sign in or play as a guest to put your score on the board.');
+  $('#bmsg').textContent=parts.join(' ');
+  $('#bsign').hidden=!!u;
+}
+async function openBoard(force){
+  const t=today(),day=PG.dayKey(t);PG.rollDay(P,t);show('board');
+  $('#bday').textContent=PG.dayLabel(t)+' · lowest score wins';
+  if(!force&&bc.day==day&&bc.rows&&Date.now()-bc.at<180000)return renderBoard(bc);   // reuse for 3 minutes: keeps reads low
+  renderBoard(null,'Loading...');
+  $('#bref').disabled=true;setTimeout(()=>{$('#bref').disabled=false},8000);
+  try{
+    const rows=await mp.fetchBoard(day,20),u=mp.me(),mine=PG.doneCount(P)==5?PG.dailyScore(P):null;
+    let rank=0;
+    if(mine&&u){const i=rows.findIndex(r=>r.uid==u.uid);rank=i>=0?i+1:await mp.myRank(day,mine.score)}
+    bc={day,at:Date.now(),rows,rank};
+    if(cur()=='board')renderBoard(bc);
+  }catch(e){if(cur()=='board')renderBoard(null,'Could not load the leaderboard. Check your connection.')}
+}
+$('#bref').onclick=()=>openBoard(true);
+$('#bsign').onclick=()=>show('auth');
+
+/* ---------- Sync: this phone is the master copy, the account keeps a copy ---------- */
+// Playing never waits for the network. A clear is saved on the phone first, queued in kk_out, and sent as ONE batched write
+// (the clear record + the summary). Offline, the queue just waits; it is retried when the app opens, comes back to the front
+// or the connection returns. Records have fixed ids, so sending one twice is harmless.
+const withTimeout=(p,ms=20000)=>Promise.race([p,new Promise((_,rej)=>setTimeout(()=>rej(Object.assign(new Error('timeout'),{code:'timeout'})),ms))]);
+function queueOp(op){PG.pushOut(st,op);needPush=true;flush()}
+async function flush(){
+  const u=mp.me();
+  if(flushing){again=true;return}
+  if(!u||recUid!==u.uid)return;                       // only after reconcile, so an old summary never overwrites a newer one
+  const ops=PG.readOut(st);if(!ops.length&&!needPush)return;
+  flushing=true;
+  try{
+    const items=ops.filter(o=>o.t=='item');
+    if(items.length||needPush){await withTimeout(mp.syncClear({items,summary:PG.summaryOf(P,Date.now())}));PG.dropOut(st,items);needPush=false}
+    for(const b of ops.filter(o=>o.t=='board')){await withTimeout(mp.submitBoard(b.day,{...b,name:u.name,av:myAv()}));PG.dropOut(st,[b]);bc.at=0}
+  }catch(e){
+    if(e&&e.code=='permission-denied'){console.error('Firestore rules refused the save:',e);PG.clearOut(st);needPush=false}   // do not retry forever
+  }finally{flushing=false;if(again){again=false;setTimeout(flush,0)}}
+}
+// After sign-in (and at every app start while signed in): read the account's summary (1 read) and combine it with this phone's progress.
+async function reconcile(){
+  const u=mp.me();if(!u||recBusy)return;recBusy=true;
+  try{
+    const remote=await mp.loadSummary(),r=PG.reconcile(P,remote,u.uid,u.anon);
+    for(const k of Object.keys(P))delete P[k];Object.assign(P,r.prog);
+    if(r.replaced){clearSave();PG.clearOut(st)}      // another account's progress must not leak into this one
+    PG.rollDay(P,today());PG.saveProg(st,P);
+    recUid=u.uid;needPush=r.push;
+    renderMe();const sc=cur();if(sc=='home')renderHome();if(sc=='daily')renderDaily();if(sc=='setup')setLv(S.lvl);
+    flush();
+  }catch(e){/* offline: tried again when the connection returns */}
+  finally{recBusy=false}
+}
+const resync=()=>{if(mp.me())recUid===mp.me().uid?flush():reconcile()};
+addEventListener('online',resync);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState=='visible')resync()});
+setInterval(resync,60000);
 
 /* ---------- the game ---------- */
 // restore = a checked save from readSave(): the board, notes, hints, time and undo history come back exactly as left
@@ -240,14 +374,16 @@ addEventListener('resize',fit);
 
 // write the game in progress to storage. Cheap (about 1-2 KB), so it runs after every change.
 function persist(){
-  if(!g||g.meta.type!='level')return;
+  if(!g)return;
   if(g.st=='done'){clearSave();return}
   if(g.moves>0||g.counted)PG.writeSave(st,g,elapsed());
 }
 // an attempt is counted when the first digit (or hint) goes on a fresh board
+const attKey=m=>m.type=='level'?'L'+m.level:m.practice?null:'D'+m.day+'-'+m.idx;   // practice replays are not counted
 function countAttempt(){
-  if(g.counted||g.meta.type!='level')return;
-  g.counted=true;PG.startAttempt(P,'L'+g.meta.level);PG.saveProg(st,P);
+  const k=attKey(g.meta);
+  if(g.counted||!k)return;
+  g.counted=true;PG.startAttempt(P,k);PG.saveProg(st,P);
 }
 addEventListener('pagehide',persist);
 function pick(i){if(!g||g.st!='play')return;g.sel=i;syncAll()}
@@ -368,23 +504,55 @@ function checkDone(){
   for(let i=0;i<g.N;i++)if(g.pz.t[i]&&!g.v[i])return;
   if(!K.isSolved(g.pz,g.runs,g.v))return;
   g.st='done';pauseClock();tick();g.sel=-1;syncAll();
-  if(g.meta.type=='level'){g.rec=PG.recordClear(P,{level:g.meta.level,ms:g.ms,hints:g.hints});PG.saveProg(st,P)}   // saved now, so closing the app during the animation loses nothing
+  recordFinish();   // saved now, so closing the app during the animation loses nothing
   if(!reduced){let n=0;g.els.forEach(k=>{if(k.classList.contains('w')){k.style.setProperty('--k',n++);k.classList.add('done')}})}
   sfx.win();ctx.t1=setTimeout(showResult,reduced?200:1100);
 }
-// step 3 sends {type, level, time, attempts, hints, finished} to Firebase from here (g.rec has them)
+// save the clear on the phone, then queue it for the account
+function recordFinish(){
+  const m=g.meta,now=Date.now();
+  if(m.type=='level'){
+    const r=g.rec=PG.recordClear(P,{level:m.level,ms:g.ms,hints:g.hints});
+    PG.saveProg(st,P);if(r.best&&(r.first||r.newBest))queueOp(PG.levelItem(m.level,r.best,now));
+  }else if(m.practice)g.rec={practice:true};
+  else if(m.day!==PG.dayKey(today()))g.rec={stale:true};   // the day changed while playing, so it does not count
+  else{
+    const r=g.rec=PG.recordDaily(P,{today:today(),idx:m.idx,ms:g.ms,hints:g.hints});
+    PG.saveProg(st,P);
+    if(!r.dup){
+      queueOp(PG.dailyItem(m.day,m.idx,P.daily.done[m.idx],now));
+      if(r.full)queueOp({t:'board',day:m.day,ms:r.ms,hints:r.hints,score:r.score,finished:now});
+    }
+  }
+}
 function showResult(){
   if(!g||g.st!='done'||!g.rec)return;
-  const r=g.rec,list=$('#rlist');list.innerHTML='';
-  $('#rtitle').textContent=g.meta.title+(r.first?' cleared!':' solved!');
-  [['⏱','Time',fmt(g.ms)],['🏆','Best time',fmt(r.best.ms)+(r.newBest&&!r.first?'  new!':'')],['💡','Hints used',g.hints+' of '+g.hintMax],['🔁','Attempts',String(r.attempts)]].forEach(([ic,nm,val],i)=>{
+  const r=g.rec,m=g.meta,list=$('#rlist');list.innerHTML='';let rows,note='';
+  const hintTxt=g.hints+' of '+g.hintMax;
+  if(m.type=='level'){
+    $('#rtitle').textContent=m.title+(r.first?' cleared!':' solved!');
+    rows=[['⏱','Time',fmt(g.ms)],['🏆','Best time',fmt(r.best.ms)+(r.newBest&&!r.first?'  new!':'')],['💡','Hints used',hintTxt],['🔁','Attempts',String(r.attempts)]];
+    if(r.first)note='Level '+PG.unlockedLevel(P)+' is unlocked.';
+    $('#rnext').textContent='Next level';
+  }else if(r.practice||r.stale||r.dup){
+    $('#rtitle').textContent=m.title.replace(' (practice)','')+' solved!';
+    rows=[['⏱','Time',fmt(g.ms)],['💡','Hints used',hintTxt]];
+    note=r.stale?'The day changed while you were playing, so this one was not recorded.':'Practice: not recorded.';
+    $('#rnext').textContent='Daily 5';
+  }else{
+    $('#rtitle').textContent=m.title+' done!';
+    rows=[['⏱','Time',fmt(g.ms)],['💡','Hints used',hintTxt+(g.hints?'  +'+fmt(g.hints*PG.HINT_PENALTY_MS):'')],['🔁','Attempts',String(r.attempts)],['📅','Today',r.done+' of 5']];
+    if(r.full){rows.push(['🏁','Score',fmt(r.score)],['🔥','Streak',r.streak+(r.streak==1?' day':' days')]);note='All five done! Your score goes on the leaderboard.'}
+    $('#rnext').textContent=r.full?'Leaderboard':'Next puzzle';
+  }
+  rows.forEach(([ic,nm,val],i)=>{
     const row=document.createElement('div');row.className='rrow'+(i==0?' r0':'');
     const av=document.createElement('span');av.className='rav';av.textContent=ic;
     const n=document.createElement('span');n.className='nm';n.textContent=nm;
     const t=document.createElement('span');t.textContent=val;
     row.append(av,n,t);list.append(row);
   });
-  if(r.first)list.append(Object.assign(document.createElement('p'),{className:'hint',textContent:'Level '+PG.unlockedLevel(P)+' is unlocked.'}));
+  if(note)list.append(Object.assign(document.createElement('p'),{className:'hint',textContent:note}));
   confetti(true);$('#result').hidden=false;
 }
 function confetti(on){
@@ -395,8 +563,16 @@ function confetti(on){
   }
 }
 $('#rmenu').onclick=home;
-$('#rnext').onclick=()=>{if(g)makeLevel(g.meta.level+1,$('#rnext'))};
-$('#rreplay').onclick=()=>{if(!g)return;const pz=g.pz,meta=g.meta;$('#result').hidden=true;newGame(pz,meta)};
+$('#rnext').onclick=()=>{
+  if(!g)return;const mt=g.meta,r=g.rec||{};
+  if(mt.type=='level')return makeLevel(mt.level+1,$('#rnext'));
+  if(r.full){leave();return openBoard(false)}
+  if(!r.practice&&!r.stale&&!r.dup){      // next puzzle not solved yet today
+    for(let i=1;i<=5;i++){const k=(mt.idx+i)%5;if(!P.daily.done[k]){leave();show('daily');renderDaily();return playDaily(k)}}
+  }
+  leave();openDaily();
+};
+$('#rreplay').onclick=()=>{if(!g)return;const pz=g.pz,meta=g.meta.type=='daily'?dailyMeta(PG.dayNum(Date.now()),g.meta.idx,true):g.meta;$('#result').hidden=true;newGame(pz,meta)};   // a replay of a daily is practice
 $('#rshare').onclick=()=>shareApp('I solved '+(g?g.meta.title+' in '+fmt(g.ms)+' ':'a puzzle ')+'on Supermania Kakuro! Come play:');
 
 /* ---------- share app ---------- */
@@ -418,7 +594,8 @@ function ask(title,text,yes,cb,info){
 const closeDlg=()=>{$('#dlg').hidden=true;if(g&&g.st=='play'&&cur()=='game')startClock()};
 const cur=()=>($$('.sc').find(s=>!s.hidden)||{}).id;
 function leaveFlow(){
-    home();   // a puzzle in progress is saved, so leaving needs no warning: it waits under Continue
+  if(cur()=='board')return openDaily();
+  home();   // a puzzle in progress is saved, so leaving needs no warning: it waits under Continue
 }
 $$('[data-back]').forEach(b=>b.onclick=leaveFlow);
 let armed=false,exiting=false;
@@ -436,6 +613,7 @@ addEventListener('popstate',()=>{
 if('serviceWorker' in navigator){
   const had=!!navigator.serviceWorker.controller;let reloaded=false;
   navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).then(r=>{
+    if(!r)return;
     r.update();
     document.addEventListener('visibilitychange',()=>{if(document.visibilityState=='visible')r.update()});
   });
@@ -459,7 +637,7 @@ async function checkUpdate(){
 }
 function applyUpdate(){
   if(!upd)return;
-  if(!['home','how','setup','chars','auth'].includes(cur())||!$('#result').hidden||!$('#dlg').hidden)return;
+  if(!['home','how','setup','chars','auth','daily','board'].includes(cur())||!$('#result').hidden||!$('#dlg').hidden)return;
   location.reload();
 }
 checkUpdate();
