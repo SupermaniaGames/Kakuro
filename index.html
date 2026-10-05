@@ -61,6 +61,7 @@
  <div class="card" id="lvinfo"></div>
  <button class="btn p" id="play">Play</button>
  <button class="btn" id="restart" hidden>Start over</button>
+ <button class="btn" id="lvboard">🏆 Level leaderboard</button>
  <button class="btn" id="lvcur">Go to my level</button>
  <button class="btn" data-back>Back</button>
 </section>
@@ -74,7 +75,7 @@
 </section>
 
 <section class="sc" id="board" hidden>
- <h2>Today's leaderboard</h2>
+ <h2 id="btitle">Today's leaderboard</h2>
  <div class="hint" id="bday"></div>
  <div id="blist"></div>
  <p class="hint" id="bmsg"></p>
@@ -138,6 +139,7 @@
    <li>Finish all five in a day to add to your streak. Miss a whole day and the streak starts again.</li>
    <li>Leaderboard: your score is your total time for the five, plus 30 seconds for every hint you used. Lowest wins.</li>
    <li>Your times are saved to your account, so they follow you to a new phone. If you are offline, they are sent when you are back online.</li>
+   <li>Every level has its own leaderboard too. Your level score is your time, plus 30 seconds for each extra attempt and 30 seconds for each hint. Lowest wins, and your best score on a level is the one that counts.</li>
   </ul>
  </div>
  <button class="btn p" data-back>Back</button>
@@ -169,6 +171,7 @@
   <div class="rtitle" id="rtitle">Solved!</div>
   <div id="rlist"></div>
   <div class="rbtns"><button class="btn p" id="rnext">Next level</button></div>
+  <div class="rbtns"><button class="btn" id="rlb">🏆 Level leaderboard</button></div>
   <div class="rbtns"><button class="btn" id="rmenu">Menu</button><button class="btn" id="rshare">Share</button><button class="btn" id="rreplay">Replay</button></div>
  </div>
 </div>

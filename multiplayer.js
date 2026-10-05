@@ -85,3 +85,19 @@ export const myRank=async(day,score)=>{
   const c=await getCountFromServer(query(collection(db,'kakuroDaily',day,'entries'),where('score','<',score)));
   return c.data().count+1;
 };
+
+/* ---------- level leaderboards ----------
+   kakuroLevels/{level}/entries/{uid}: one entry per player per level (their best score).
+   score = time + 30 s per extra attempt + 30 s per hint. Lowest wins. */
+export const submitLevelBoard=async(level,d)=>{
+  const u=auth.currentUser;if(!u)throw new Error('Not signed in');
+  await setDoc(doc(db,'kakuroLevels',String(level),'entries',u.uid),{name:cleanName(d.name)||'Player',av:String(d.av||'').slice(0,8),ms:d.ms,attempts:d.attempts,hints:d.hints,score:d.score,level,finished:d.finished});
+};
+export const fetchLevelBoard=async(level,n=20)=>{
+  const s=await getDocs(query(collection(db,'kakuroLevels',String(level),'entries'),orderBy('score'),limit(n)));
+  return s.docs.map(d=>({uid:d.id,...d.data()}));
+};
+export const myLevelRank=async(level,score)=>{
+  const c=await getCountFromServer(query(collection(db,'kakuroLevels',String(level),'entries'),where('score','<',score)));
+  return c.data().count+1;
+};

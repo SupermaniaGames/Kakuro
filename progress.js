@@ -11,9 +11,12 @@ const isInt=(x,a,b)=>Number.isInteger(x)&&x>=a&&x<=b;
 // att["L12"] / att["D20261005-3"] = attempts started on a puzzle that is not cleared yet (see startAttempt)
 // daily = {day:'YYYYMMDD' (India day), done:{'0'..'4': {ms,a,h}}}: today's FIRST clears (replays are practice and not recorded)
 // streak / bestStreak / lastFull(day number) / fullDays = days on which all five dailies were finished
-// own / ownAnon = which account this device's progress belongs to; sub = last day sent to the leaderboard
+// own / ownAnon = which account this device's progress belongs to; sub = last day sent to the daily leaderboard
+// lbs[level] = the score last sent to that level's leaderboard (so a level is only sent again when it improves)
 export const HINT_PENALTY_MS=30000;   // daily score = total time + 30 s per hint
-export const emptyProg=()=>({v:2,cleared:0,best:{},att:{},daily:{day:'',done:{}},streak:0,bestStreak:0,lastFull:0,fullDays:0,own:'',ownAnon:false,sub:''});
+export const ATTEMPT_PENALTY_MS=30000;   // level score = time + 30 s per extra attempt + 30 s per hint (lowest wins)
+export const levelScore=b=>b.ms+(Math.max(1,b.a)-1)*ATTEMPT_PENALTY_MS+b.h*HINT_PENALTY_MS;
+export const emptyProg=()=>({v:2,cleared:0,best:{},att:{},daily:{day:'',done:{}},streak:0,bestStreak:0,lastFull:0,fullDays:0,own:'',ownAnon:false,sub:'',lbs:{}});
 const normRec=b=>isObj(b)&&b.ms>0&&b.ms<864e5?{ms:Math.round(b.ms),a:b.a>=1&&b.a<=1e4?b.a|0:1,h:b.h>=0&&b.h<=9?b.h|0:0}:null;
 // turn anything (storage, a server document) into a clean progress object, or null
 export function normProg(p){
@@ -30,6 +33,7 @@ export function normProg(p){
   if(typeof p.own==='string'&&/^[\w-]{0,64}$/.test(p.own))q.own=p.own;
   q.ownAnon=p.ownAnon===true;
   if(typeof p.sub==='string'&&/^(\d{8})?$/.test(p.sub))q.sub=p.sub;
+  if(isObj(p.lbs))for(const k in p.lbs)if(/^\d{1,6}$/.test(k)&&isInt(p.lbs[k],1,5e8))q.lbs[k]=p.lbs[k];
   return q;
 }
 export function loadProg(st){
@@ -42,14 +46,15 @@ export const unlockedLevel=p=>p.cleared+1;
 export function startAttempt(p,key){p.att[key]=(p.att[key]||0)+1;return p.att[key]}
 // Called once when a level is solved. Returns what the result screen shows.
 export function recordClear(p,{level,ms,hints}){
-  if(!(level>=1&&level<=p.cleared+1))return{first:false,newBest:false,attempts:1,best:null};   // a locked level can not be cleared
+  if(!(level>=1&&level<=p.cleared+1))return{first:false,newBest:false,attempts:1,score:0,best:null};   // a locked level can not be cleared
   const key='L'+level,attempts=Math.max(1,p.att[key]||0),prev=p.best[level];
   const first=level===p.cleared+1;
   if(first)p.cleared=level;
-  const newBest=!prev||ms<prev.ms;
-  if(newBest)p.best[level]={ms:Math.round(ms),a:attempts,h:hints};
+  const rec={ms:Math.round(ms),a:attempts,h:hints};
+  const newBest=!prev||levelScore(rec)<levelScore(prev);   // best = lowest score (time + penalties), not just fastest time
+  if(newBest)p.best[level]=rec;
   delete p.att[key];
-  return{first,newBest,attempts,best:p.best[level]};
+  return{first,newBest,attempts,score:levelScore(rec),best:p.best[level]};
 }
 export function stats(p){
   const v=Object.values(p.best).map(b=>b.ms);
@@ -94,13 +99,13 @@ export const sameSummary=(p,remote)=>{const r=normProg(remote);return !!r&&core(
 export function mergeProg(a,b){
   const r=emptyProg();
   r.cleared=Math.max(a.cleared,b.cleared);
-  for(const src of [b,a])for(const k in src.best){const x=src.best[k],y=r.best[k];if(+k<=r.cleared&&(!y||x.ms<y.ms||(x.ms===y.ms&&src===a)))r.best[k]={...x}}
+  for(const src of [b,a])for(const k in src.best){const x=src.best[k],y=r.best[k];if(+k<=r.cleared&&(!y||levelScore(x)<levelScore(y)||(levelScore(x)===levelScore(y)&&src===a)))r.best[k]={...x}}
   r.att={...a.att};
   if(a.daily.day===b.daily.day){r.daily={day:a.daily.day,done:{}};for(const src of [b,a])for(const k in src.daily.done){const x=src.daily.done[k],y=r.daily.done[k];if(!y||x.ms<y.ms)r.daily.done[k]={...x}}}
   else r.daily=JSON.parse(JSON.stringify(a.daily.day>b.daily.day?a.daily:b.daily));
   const w=a.lastFull>b.lastFull||(a.lastFull===b.lastFull&&a.streak>=b.streak)?a:b;
   r.streak=w.streak;r.lastFull=w.lastFull;r.bestStreak=Math.max(a.bestStreak,b.bestStreak,r.streak);r.fullDays=Math.max(a.fullDays,b.fullDays);
-  r.sub=a.sub>b.sub?a.sub:b.sub;r.own=a.own;r.ownAnon=a.ownAnon;
+  r.sub=a.sub>b.sub?a.sub:b.sub;r.own=a.own;r.ownAnon=a.ownAnon;r.lbs={...a.lbs};
   return r;
 }
 // Called after sign-in with the account's stored summary (or null). Decides how this phone's progress and the account's combine:
@@ -122,10 +127,11 @@ const okMs=x=>isInt(x,1,5e8);
 function okOp(o){
   if(!isObj(o))return false;
   if(o.t==='item')return /^(L\d{1,6}|D\d{8}-[0-4])$/.test(o.pid)&&isObj(o.data)&&['level','daily'].includes(o.data.kind)&&okMs(o.data.ms)&&isInt(o.data.attempts,1,1e4)&&isInt(o.data.hints,0,9)&&Number.isFinite(o.data.finished);
+  if(o.t==='lboard')return isInt(o.level,1,1e6)&&okMs(o.ms)&&okMs(o.score)&&isInt(o.attempts,1,1e4)&&isInt(o.hints,0,9)&&Number.isFinite(o.finished);
   if(o.t==='board')return /^\d{8}$/.test(o.day)&&okMs(o.ms)&&okMs(o.score)&&isInt(o.hints,0,45)&&Number.isFinite(o.finished);
   return false;
 }
-const opId=o=>o.t==='item'?o.pid:'B'+o.day;
+const opId=o=>o.t==='item'?o.pid:o.t==='lboard'?'LB'+o.level:'B'+o.day;
 export function readOut(st){try{const a=JSON.parse(st.getItem(KEYS.out));return Array.isArray(a)?a.filter(okOp).slice(-300):[]}catch{return[]}}
 const writeOut=(st,a)=>{try{if(a.length)st.setItem(KEYS.out,JSON.stringify(a));else st.removeItem(KEYS.out)}catch{}};
 export function pushOut(st,op){const a=readOut(st).filter(x=>opId(x)!==opId(op));a.push(op);writeOut(st,a)}
@@ -172,3 +178,11 @@ export function readSave(st){
     return s;
   }catch{return null}
 }
+// Level leaderboard: queue this level's best score if the board has not seen it yet (new best, or never sent). Returns true if queued.
+export function levelBoardOp(p,level,finished){
+  const b=p.best[level];if(!b)return null;
+  const score=levelScore(b);if(p.lbs[level]&&p.lbs[level]<=score)return null;
+  return{t:'lboard',level,ms:b.ms,attempts:b.a,hints:b.h,score,finished};
+}
+// the server confirmed a level entry
+export const markLevelBoard=(p,level,score)=>{p.lbs[level]=score};

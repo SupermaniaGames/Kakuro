@@ -5,7 +5,7 @@ try{mp=await import('./multiplayer.js')}catch(e){
   console.error('Firebase setup problem:',e);
   const why=String(e&&e.message||'').includes('Firebase config')?e.message:'Sign-in is not set up. Check firebase-config.js';
   const off=()=>{throw new Error(why)};
-  mp={me:()=>null,onUser(cb){setTimeout(()=>cb(null))},signIn:off,signUp:off,guest:off,logout:async()=>{},saveProfile:async()=>{},loadProfile:async()=>null,googleSignIn:off,loadSummary:async()=>null,syncClear:off,submitBoard:off,fetchBoard:off,myRank:off};
+  mp={me:()=>null,onUser(cb){setTimeout(()=>cb(null))},signIn:off,signUp:off,guest:off,logout:async()=>{},saveProfile:async()=>{},loadProfile:async()=>null,googleSignIn:off,loadSummary:async()=>null,syncClear:off,submitBoard:off,fetchBoard:off,myRank:off,submitLevelBoard:off,fetchLevelBoard:off,myLevelRank:off};
 }
 
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
@@ -174,7 +174,7 @@ $('#cont').onclick=()=>{const sv=saved();if(sv)resume(sv);else renderHome()};
 const clampLv=n=>Math.max(1,Math.min(PG.unlockedLevel(P),Math.floor(n)||1));   // only levels up to your next new one
 function lvInfo(){
   const P0=K.levelProfile(S.lvl),k=Math.min(4,Math.floor(P0.d*5)),sv=saved(),mine=sv&&sv.meta.level==S.lvl,b=P.best[S.lvl];
-  const status=mine?'In progress · '+fmt(sv.ms):b?'Best time '+fmt(b.ms)+' · '+b.a+(b.a==1?' attempt':' attempts')+' · '+b.h+(b.h==1?' hint':' hints'):S.lvl==PG.unlockedLevel(P)?'New level':'';
+  const status=mine?'In progress · '+fmt(sv.ms):b?'Best score '+fmt(PG.levelScore(b))+' · '+b.a+(b.a==1?' attempt':' attempts')+' · '+b.h+(b.h==1?' hint':' hints'):S.lvl==PG.unlockedLevel(P)?'New level':'';
   $('#lvinfo').innerHTML='<b>Level '+S.lvl+'</b><span class="dots">'+[0,1,2,3,4].map(i=>'<i class="'+(i<=k?'on':'')+'"></i>').join('')+'</span><br>'+
     DIFF[k]+' · grid '+P0.cols+' × '+P0.rows+'<br>Runs up to '+P0.maxRun+' squares long<br>Logic: '+LOGIC[Math.min(3,P0.tHi-1)]+(status?'<br>'+status:'');
   $('#play').textContent=mine?'Resume':'Play';
@@ -247,56 +247,71 @@ function makeDaily(k,practice){
     newGame(pz,dailyMeta(day,k,practice));
   },30);
 }
-$('#dboard').onclick=()=>openBoard(false);
+$('#dboard').onclick=()=>openBoard('daily',PG.dayKey(today()),false);
 
-/* ---------- leaderboard: today's fastest players (score = total time of the five + 30 s per hint) ---------- */
-let bc={day:'',at:0,rows:null,rank:0};
+/* ---------- leaderboards: Daily 5 (one per day) and one per level ---------- */
+// Daily score = total time of the five + 30 s per hint.  Level score = time + 30 s per extra attempt + 30 s per hint.  Lowest wins.
+let bk={kind:'daily',key:''};           // the board that is open
+const bcache={};                         // 'd:20261005' / 'l:12' -> {at, rows, rank}: a board is reused for 3 minutes to keep reads low
+const bid=k=>(k.kind=='level'?'l:':'d:')+k.key;
+const myEntry=k=>{
+  if(k.kind=='level'){const b=P.best[k.key];return b?{score:PG.levelScore(b),hints:b.h,attempts:b.a,ms:b.ms}:null}
+  return PG.doneCount(P)==5?PG.dailyScore(P):null;
+};
 function renderBoard(data,msg){
-  const list=$('#blist');list.innerHTML='';const u=mp.me(),mine=PG.doneCount(P)==5?PG.dailyScore(P):null;
+  const list=$('#blist');list.innerHTML='';const u=mp.me(),mine=myEntry(bk),lvl=bk.kind=='level';
   const row=(rk,r,me)=>{
     const d=document.createElement('div');d.className='brow'+(me?' me':'');
     const a=document.createElement('span');a.className='rk';a.textContent=rk;
     const av=document.createElement('span');av.className='rav';av.textContent=r.av||'🙂';
     const n=document.createElement('span');n.className='nm';n.textContent=r.name||'Player';
     const s=document.createElement('span');s.className='sc2';s.textContent=fmt(r.score);
-    const sm=document.createElement('small');sm.textContent=r.hints?r.hints+(r.hints==1?' hint':' hints'):'no hints';s.append(sm);
+    const sm=document.createElement('small'),h=r.hints?r.hints+(r.hints==1?' hint':' hints'):'no hints';
+    sm.textContent=lvl&&r.attempts?(r.ms?'time '+fmt(r.ms)+' · ':'')+r.attempts+(r.attempts==1?' attempt':' attempts')+' · '+h:h;s.append(sm);
     d.append(a,av,n,s);list.append(d);
   };
   if(data&&data.rows){
     data.rows.forEach((r,i)=>row(i+1,r,!!u&&r.uid==u.uid));
-    if(mine&&u&&data.rank>data.rows.length)row('#'+data.rank,{name:'You',av:myAv(),score:mine.score,hints:mine.hints},true);
+    if(mine&&u&&data.rank>data.rows.length)row('#'+data.rank,{name:'You',av:myAv(),score:mine.score,hints:mine.hints,attempts:mine.attempts,ms:mine.ms},true);
   }
   const parts=[];
   if(msg)parts.push(msg);
-  else if(data&&data.rows&&!data.rows.length)parts.push('No scores yet today. Be the first!');
-  if(!msg&&!mine)parts.push('Finish all five puzzles to join today\'s board. You have '+PG.doneCount(P)+' of 5.');
+  else if(data&&data.rows&&!data.rows.length)parts.push(lvl?'No scores on this level yet. Be the first!':'No scores yet today. Be the first!');
+  if(!msg&&!mine)parts.push(lvl?'Clear this level to join its board.':'Finish all five puzzles to join today\'s board. You have '+PG.doneCount(P)+' of 5.');
   else if(!msg&&mine&&!u)parts.push('Sign in or play as a guest to put your score on the board.');
   $('#bmsg').textContent=parts.join(' ');
   $('#bsign').hidden=!!u;
 }
-async function openBoard(force){
-  const t=today(),day=PG.dayKey(t);PG.rollDay(P,t);show('board');
-  $('#bday').textContent=PG.dayLabel(t)+' · lowest score wins';
-  if(!force&&bc.day==day&&bc.rows&&Date.now()-bc.at<180000)return renderBoard(bc);   // reuse for 3 minutes: keeps reads low
+async function openBoard(kind,key,force){
+  const t=today();PG.rollDay(P,t);bk={kind,key};show('board');
+  const lvl=kind=='level';
+  $('#btitle').textContent=lvl?'Level '+key+' leaderboard':'Today\'s leaderboard';
+  $('#bday').textContent=lvl?'Lowest score wins · time + 30 s per extra attempt or hint':PG.dayLabel(t)+' · lowest score wins';
+  if(lvl){const op=PG.levelBoardOp(P,key,Date.now());if(op)queueOp(op,false)}   // makes sure my best for this level is on the board
+  const c=bcache[bid(bk)];
+  if(!force&&c&&Date.now()-c.at<180000)return renderBoard(c);
   renderBoard(null,'Loading...');
   $('#bref').disabled=true;setTimeout(()=>{$('#bref').disabled=false},8000);
+  const mine=myEntry(bk);
   try{
-    const rows=await mp.fetchBoard(day,20),u=mp.me(),mine=PG.doneCount(P)==5?PG.dailyScore(P):null;
+    const rows=lvl?await mp.fetchLevelBoard(key,20):await mp.fetchBoard(key,20),u=mp.me();
     let rank=0;
-    if(mine&&u){const i=rows.findIndex(r=>r.uid==u.uid);rank=i>=0?i+1:await mp.myRank(day,mine.score)}
-    bc={day,at:Date.now(),rows,rank};
-    if(cur()=='board')renderBoard(bc);
+    if(mine&&u){const i=rows.findIndex(r=>r.uid==u.uid);rank=i>=0?i+1:await(lvl?mp.myLevelRank(key,mine.score):mp.myRank(key,mine.score))}
+    const d=bcache[bid({kind,key})]={at:Date.now(),rows,rank};
+    if(cur()=='board'&&bid(bk)==bid({kind,key}))renderBoard(d);
   }catch(e){if(cur()=='board')renderBoard(null,'Could not load the leaderboard. Check your connection.')}
 }
-$('#bref').onclick=()=>openBoard(true);
+$('#bref').onclick=()=>openBoard(bk.kind,bk.key,true);
 $('#bsign').onclick=()=>show('auth');
+$('#lvboard').onclick=()=>openBoard('level',S.lvl,false);
+$('#rlb').onclick=()=>{if(!g||g.meta.type!='level')return;const L=g.meta.level;S.lvl=L;leave();openBoard('level',L,false)};
 
 /* ---------- Sync: this phone is the master copy, the account keeps a copy ---------- */
 // Playing never waits for the network. A clear is saved on the phone first, queued in kk_out, and sent as ONE batched write
 // (the clear record + the summary). Offline, the queue just waits; it is retried when the app opens, comes back to the front
 // or the connection returns. Records have fixed ids, so sending one twice is harmless.
 const withTimeout=(p,ms=20000)=>Promise.race([p,new Promise((_,rej)=>setTimeout(()=>rej(Object.assign(new Error('timeout'),{code:'timeout'})),ms))]);
-function queueOp(op){PG.pushOut(st,op);needPush=true;flush()}
+function queueOp(op,summary=true){PG.pushOut(st,op);if(summary)needPush=true;flush()}
 async function flush(){
   const u=mp.me();
   if(flushing){again=true;return}
@@ -306,7 +321,8 @@ async function flush(){
   try{
     const items=ops.filter(o=>o.t=='item');
     if(items.length||needPush){await withTimeout(mp.syncClear({items,summary:PG.summaryOf(P,Date.now())}));PG.dropOut(st,items);needPush=false}
-    for(const b of ops.filter(o=>o.t=='board')){await withTimeout(mp.submitBoard(b.day,{...b,name:u.name,av:myAv()}));PG.dropOut(st,[b]);bc.at=0}
+    for(const b of ops.filter(o=>o.t=='board')){await withTimeout(mp.submitBoard(b.day,{...b,name:u.name,av:myAv()}));PG.dropOut(st,[b]);delete bcache['d:'+b.day]}
+    for(const l of ops.filter(o=>o.t=='lboard')){await withTimeout(mp.submitLevelBoard(l.level,{...l,name:u.name,av:myAv()}));PG.dropOut(st,[l]);PG.markLevelBoard(P,l.level,l.score);PG.saveProg(st,P);delete bcache['l:'+l.level]}
   }catch(e){
     if(e&&e.code=='permission-denied'){console.error('Firestore rules refused the save:',e);PG.clearOut(st);needPush=false}   // do not retry forever
   }finally{flushing=false;if(again){again=false;setTimeout(flush,0)}}
@@ -513,7 +529,8 @@ function recordFinish(){
   const m=g.meta,now=Date.now();
   if(m.type=='level'){
     const r=g.rec=PG.recordClear(P,{level:m.level,ms:g.ms,hints:g.hints});
-    PG.saveProg(st,P);if(r.best&&(r.first||r.newBest))queueOp(PG.levelItem(m.level,r.best,now));
+    PG.saveProg(st,P);
+    if(r.best&&(r.first||r.newBest)){queueOp(PG.levelItem(m.level,r.best,now));const lb=PG.levelBoardOp(P,m.level,now);if(lb)queueOp(lb,false)}
   }else if(m.practice)g.rec={practice:true};
   else if(m.day!==PG.dayKey(today()))g.rec={stale:true};   // the day changed while playing, so it does not count
   else{
@@ -529,10 +546,11 @@ function showResult(){
   if(!g||g.st!='done'||!g.rec)return;
   const r=g.rec,m=g.meta,list=$('#rlist');list.innerHTML='';let rows,note='';
   const hintTxt=g.hints+' of '+g.hintMax;
+  $('#rlb').hidden=m.type!='level';
   if(m.type=='level'){
     $('#rtitle').textContent=m.title+(r.first?' cleared!':' solved!');
-    rows=[['⏱','Time',fmt(g.ms)],['🏆','Best time',fmt(r.best.ms)+(r.newBest&&!r.first?'  new!':'')],['💡','Hints used',hintTxt],['🔁','Attempts',String(r.attempts)]];
-    if(r.first)note='Level '+PG.unlockedLevel(P)+' is unlocked.';
+    rows=[['⏱','Time',fmt(g.ms)],['🎯','Score',fmt(r.score)],['🏆','Best score',fmt(PG.levelScore(r.best))+(r.newBest&&!r.first?'  new!':'')],['💡','Hints used',hintTxt],['🔁','Attempts',String(r.attempts)]];
+    note=(r.score>g.ms?'Score = time + 30 s per extra attempt and per hint. ':'')+(r.first?'Level '+PG.unlockedLevel(P)+' is unlocked.':'');
     $('#rnext').textContent='Next level';
   }else if(r.practice||r.stale||r.dup){
     $('#rtitle').textContent=m.title.replace(' (practice)','')+' solved!';
@@ -566,7 +584,7 @@ $('#rmenu').onclick=home;
 $('#rnext').onclick=()=>{
   if(!g)return;const mt=g.meta,r=g.rec||{};
   if(mt.type=='level')return makeLevel(mt.level+1,$('#rnext'));
-  if(r.full){leave();return openBoard(false)}
+  if(r.full){leave();return openBoard('daily',PG.dayKey(today()),false)}
   if(!r.practice&&!r.stale&&!r.dup){      // next puzzle not solved yet today
     for(let i=1;i<=5;i++){const k=(mt.idx+i)%5;if(!P.daily.done[k]){leave();show('daily');renderDaily();return playDaily(k)}}
   }
@@ -594,7 +612,7 @@ function ask(title,text,yes,cb,info){
 const closeDlg=()=>{$('#dlg').hidden=true;if(g&&g.st=='play'&&cur()=='game')startClock()};
 const cur=()=>($$('.sc').find(s=>!s.hidden)||{}).id;
 function leaveFlow(){
-  if(cur()=='board')return openDaily();
+  if(cur()=='board'){if(bk.kind=='level'){show('setup');return setLv(S.lvl)}return openDaily()}
   home();   // a puzzle in progress is saved, so leaving needs no warning: it waits under Continue
 }
 $$('[data-back]').forEach(b=>b.onclick=leaveFlow);
